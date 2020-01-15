@@ -7,7 +7,8 @@ use futures::{executor::ThreadPoolBuilder, task::SpawnExt, StreamExt};
 use log::{error, info, warn};
 use serde_derive::Deserialize;
 use svc_agent::mqtt::{
-    compat, AgentBuilder, ConnectionMode, Notification, Publishable, QoS, SubscriptionTopic,
+    compat, AgentBuilder, ConnectionMode, DestinationTopic, Notification, Publishable, QoS,
+    SubscriptionTopic,
 };
 use svc_agent::{AgentId, Authenticable, SharedGroup, Subscription};
 use svc_authn::{jose::Algorithm, token::jws_compact};
@@ -128,7 +129,7 @@ pub(crate) async fn run(db: &ConnectionPool) -> Result<(), Error> {
         janus_responses_subscription_topic: {
             let subscription = Subscription::unicast_responses_from(&config.backend_id);
 
-            tx.subscribe(&subscription, QoS::AtLeastOnce, Some(&group))
+            tx.subscribe(&subscription, QoS::AtLeastOnce, None)
                 .expect("Error subscribing to backend responses topic");
 
             subscription
@@ -197,6 +198,22 @@ pub(crate) async fn run(db: &ConnectionPool) -> Result<(), Error> {
 
                     let result = result.and_then(|messages| {
                         for message in messages.into_iter() {
+                            let dest_topic = tx.id().destination_topic(&message, API_VERSION)?;
+                            if let Ok(bytes) = message.clone().into_bytes() {
+                                info!(
+                                    "Sending a message = '{text}' sent to the topic = '{topic}'",
+                                    text = bytes,
+                                    topic = dest_topic,
+                                )
+                            }
+                            else {
+                                error!(
+                                    "Error sending a message to the topic = '{topic}', {detail}",
+                                    topic = topic,
+                                    detail = "invalid payload",
+                                )
+                            }
+
                             tx.publish(message)?;
                         }
 
